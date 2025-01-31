@@ -30,6 +30,7 @@ api_key = "Bearer MyApiKey"
 [worldpay]
 api_key = "api_key"
 key1 = "key1"
+api_secret = "Merchant Identifier"
 
 [payu]
 api_key = "Bearer MyApiKey"
@@ -108,7 +109,7 @@ api_key = "API Key"
 [iatapay]
 key1 = "key1"
 api_key = "api_key"
-api_secret = "secrect"
+api_secret = "secret"
 
 [dummyconnector]
 api_key = "API Key"

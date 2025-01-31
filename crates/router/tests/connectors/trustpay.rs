@@ -1,7 +1,8 @@
 use std::str::FromStr;
 
+use hyperswitch_domain_models::address::{Address, AddressDetails};
 use masking::Secret;
-use router::types::{self, api, storage::enums, BrowserInformation};
+use router::types::{self, api, domain, storage::enums, BrowserInformation};
 
 use crate::{
     connector_auth,
@@ -12,14 +13,14 @@ use crate::{
 struct TrustpayTest;
 impl ConnectorActions for TrustpayTest {}
 impl utils::Connector for TrustpayTest {
-    fn get_data(&self) -> types::api::ConnectorData {
+    fn get_data(&self) -> api::ConnectorData {
         use router::connector::Trustpay;
-        types::api::ConnectorData {
-            connector: Box::new(&Trustpay),
-            connector_name: types::Connector::Trustpay,
-            get_token: types::api::GetToken::Connector,
-            merchant_connector_id: None,
-        }
+        utils::construct_connector_data_old(
+            Box::new(Trustpay::new()),
+            types::Connector::Trustpay,
+            api::GetToken::Connector,
+            None,
+        )
     }
 
     fn get_auth_token(&self) -> types::ConnectorAuthType {
@@ -48,12 +49,16 @@ fn get_default_browser_info() -> BrowserInformation {
         accept_header: Some("*".to_string()),
         user_agent: Some("none".to_string()),
         ip_address: None,
+        os_type: None,
+        os_version: None,
+        device_model: None,
+        accept_language: Some("en".to_string()),
     }
 }
 
 fn get_default_payment_authorize_data() -> Option<types::PaymentsAuthorizeData> {
     Some(types::PaymentsAuthorizeData {
-        payment_method_data: types::api::PaymentMethodData::Card(api::Card {
+        payment_method_data: domain::PaymentMethodData::Card(domain::Card {
             card_number: cards::CardNumber::from_str("4200000000000000").unwrap(),
             card_exp_year: Secret::new("25".to_string()),
             card_cvc: Secret::new("123".to_string()),
@@ -67,9 +72,10 @@ fn get_default_payment_authorize_data() -> Option<types::PaymentsAuthorizeData> 
 
 fn get_default_payment_info() -> Option<utils::PaymentInfo> {
     Some(utils::PaymentInfo {
-        address: Some(types::PaymentAddress {
-            billing: Some(api::Address {
-                address: Some(api::AddressDetails {
+        address: Some(types::PaymentAddress::new(
+            None,
+            Some(Address {
+                address: Some(AddressDetails {
                     first_name: Some(Secret::new("first".to_string())),
                     last_name: Some(Secret::new("last".to_string())),
                     line1: Some(Secret::new("line1".to_string())),
@@ -80,9 +86,11 @@ fn get_default_payment_info() -> Option<utils::PaymentInfo> {
                     ..Default::default()
                 }),
                 phone: None,
+                email: None,
             }),
-            ..Default::default()
-        }),
+            None,
+            None,
+        )),
         ..Default::default()
     })
 }
@@ -120,7 +128,7 @@ async fn should_sync_auto_captured_payment() {
         .psync_retry_till_status_matches(
             enums::AttemptStatus::Charged,
             Some(types::PaymentsSyncData {
-                connector_transaction_id: router::types::ResponseId::ConnectorTransactionId(
+                connector_transaction_id: types::ResponseId::ConnectorTransactionId(
                     txn_id.unwrap(),
                 ),
                 ..Default::default()
@@ -175,12 +183,12 @@ async fn should_sync_refund() {
     );
 }
 
-// Cards Negative scenerios
+// Cards Negative scenarios
 // Creates a payment with incorrect card number.
 #[actix_web::test]
 async fn should_fail_payment_for_incorrect_card_number() {
     let payment_authorize_data = types::PaymentsAuthorizeData {
-        payment_method_data: types::api::PaymentMethodData::Card(api::Card {
+        payment_method_data: domain::PaymentMethodData::Card(domain::Card {
             card_number: cards::CardNumber::from_str("1234567891011").unwrap(),
             card_exp_year: Secret::new("25".to_string()),
             card_cvc: Secret::new("123".to_string()),
@@ -203,7 +211,7 @@ async fn should_fail_payment_for_incorrect_card_number() {
 #[actix_web::test]
 async fn should_fail_payment_for_incorrect_expiry_year() {
     let payment_authorize_data = Some(types::PaymentsAuthorizeData {
-        payment_method_data: types::api::PaymentMethodData::Card(api::Card {
+        payment_method_data: domain::PaymentMethodData::Card(domain::Card {
             card_number: cards::CardNumber::from_str("4200000000000000").unwrap(),
             card_exp_year: Secret::new("22".to_string()),
             card_cvc: Secret::new("123".to_string()),

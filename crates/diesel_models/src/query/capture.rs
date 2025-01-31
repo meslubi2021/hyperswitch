@@ -1,5 +1,5 @@
+use common_utils::types::ConnectorTransactionIdTrait;
 use diesel::{associations::HasTable, BoolExpressionMethods, ExpressionMethods};
-use router_env::{instrument, tracing};
 
 use super::generics;
 use crate::{
@@ -10,14 +10,12 @@ use crate::{
 };
 
 impl CaptureNew {
-    #[instrument(skip(conn))]
     pub async fn insert(self, conn: &PgPooledConn) -> StorageResult<Capture> {
         generics::generic_insert(conn, self).await
     }
 }
 
 impl Capture {
-    #[instrument(skip(conn))]
     pub async fn find_by_capture_id(conn: &PgPooledConn, capture_id: &str) -> StorageResult<Self> {
         generics::generic_find_one::<<Self as HasTable>::Table, _, _>(
             conn,
@@ -25,7 +23,7 @@ impl Capture {
         )
         .await
     }
-    #[instrument(skip(conn))]
+
     pub async fn update_with_capture_id(
         self,
         conn: &PgPooledConn,
@@ -51,10 +49,9 @@ impl Capture {
         }
     }
 
-    #[instrument(skip(conn))]
     pub async fn find_all_by_merchant_id_payment_id_authorized_attempt_id(
-        merchant_id: &str,
-        payment_id: &str,
+        merchant_id: &common_utils::id_type::MerchantId,
+        payment_id: &common_utils::id_type::PaymentId,
         authorized_attempt_id: &str,
         conn: &PgPooledConn,
     ) -> StorageResult<Vec<Self>> {
@@ -69,5 +66,24 @@ impl Capture {
             Some(dsl::created_at.asc()),
         )
         .await
+    }
+}
+
+impl ConnectorTransactionIdTrait for Capture {
+    fn get_optional_connector_transaction_id(&self) -> Option<&String> {
+        match self
+            .connector_capture_id
+            .as_ref()
+            .map(|capture_id| capture_id.get_txn_id(self.connector_capture_data.as_ref()))
+            .transpose()
+        {
+            Ok(capture_id) => capture_id,
+
+            // In case hashed data is missing from DB, use the hashed ID as connector transaction ID
+            Err(_) => self
+                .connector_capture_id
+                .as_ref()
+                .map(|txn_id| txn_id.get_id()),
+        }
     }
 }

@@ -1,6 +1,4 @@
-//!
 //! Structure describing secret.
-//!
 
 use std::{fmt, marker::PhantomData};
 
@@ -9,11 +7,9 @@ use zeroize::{self, Zeroize as ZeroizableSecret};
 
 use crate::{strategy::Strategy, PeekInterface};
 
-///
 /// Secret thing.
 ///
 /// To get access to value use method `expose()` of trait [`crate::ExposeInterface`].
-///
 pub struct StrongSecret<Secret: ZeroizableSecret, MaskingStrategy = crate::WithType> {
     /// Inner secret value
     pub(crate) inner_secret: Secret,
@@ -113,6 +109,15 @@ impl StrongEq for String {
     fn strong_eq(&self, other: &Self) -> bool {
         let lhs = self.as_bytes();
         let rhs = other.as_bytes();
+
+        bool::from(lhs.ct_eq(rhs))
+    }
+}
+
+impl StrongEq for Vec<u8> {
+    fn strong_eq(&self, other: &Self) -> bool {
+        let lhs = &self;
+        let rhs = &other;
 
         bool::from(lhs.ct_eq(rhs))
     }

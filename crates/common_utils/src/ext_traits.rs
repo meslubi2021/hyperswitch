@@ -1,9 +1,7 @@
-//!
 //! This module holds traits for extending functionalities for existing datatypes
 //! & inbuilt datatypes.
-//!
 
-use error_stack::{IntoReport, ResultExt};
+use error_stack::ResultExt;
 use masking::{ExposeInterface, PeekInterface, Secret, Strategy};
 use quick_xml::de;
 use serde::{Deserialize, Serialize};
@@ -14,11 +12,9 @@ use crate::{
     fp_utils::when,
 };
 
-///
 /// Encode interface
 /// An interface for performing type conversions and serialization
-///
-pub trait Encode<'e, P>
+pub trait Encode<'e>
 where
     Self: 'e + std::fmt::Debug,
 {
@@ -27,72 +23,59 @@ where
     /// Converting `Self` into an intermediate representation `<P>`
     /// and then performing encoding operation using the `Serialize` trait from `serde`
     /// Specifically to convert into json, by using `serde_json`
-    ///
-    fn convert_and_encode(&'e self) -> CustomResult<String, errors::ParsingError>
+    fn convert_and_encode<P>(&'e self) -> CustomResult<String, errors::ParsingError>
     where
         P: TryFrom<&'e Self> + Serialize,
         Result<P, <P as TryFrom<&'e Self>>::Error>: ResultExt,
         <Result<P, <P as TryFrom<&'e Self>>::Error> as ResultExt>::Ok: Serialize;
 
-    ///
     /// Converting `Self` into an intermediate representation `<P>`
     /// and then performing encoding operation using the `Serialize` trait from `serde`
     /// Specifically, to convert into urlencoded, by using `serde_urlencoded`
-    ///
-    fn convert_and_url_encode(&'e self) -> CustomResult<String, errors::ParsingError>
+    fn convert_and_url_encode<P>(&'e self) -> CustomResult<String, errors::ParsingError>
     where
         P: TryFrom<&'e Self> + Serialize,
         Result<P, <P as TryFrom<&'e Self>>::Error>: ResultExt,
         <Result<P, <P as TryFrom<&'e Self>>::Error> as ResultExt>::Ok: Serialize;
 
-    ///
     /// Functionality, for specifically encoding `Self` into `String`
     /// after serialization by using `serde::Serialize`
-    ///
     fn url_encode(&'e self) -> CustomResult<String, errors::ParsingError>
     where
         Self: Serialize;
 
-    ///
     /// Functionality, for specifically encoding `Self` into `String`
     /// after serialization by using `serde::Serialize`
     /// specifically, to convert into JSON `String`.
-    ///
     fn encode_to_string_of_json(&'e self) -> CustomResult<String, errors::ParsingError>
     where
         Self: Serialize;
 
-    ///
     /// Functionality, for specifically encoding `Self` into `String`
     /// after serialization by using `serde::Serialize`
     /// specifically, to convert into XML `String`.
-    ///
     fn encode_to_string_of_xml(&'e self) -> CustomResult<String, errors::ParsingError>
     where
         Self: Serialize;
 
-    ///
     /// Functionality, for specifically encoding `Self` into `serde_json::Value`
     /// after serialization by using `serde::Serialize`
-    ///
     fn encode_to_value(&'e self) -> CustomResult<serde_json::Value, errors::ParsingError>
     where
         Self: Serialize;
 
-    ///
     /// Functionality, for specifically encoding `Self` into `Vec<u8>`
     /// after serialization by using `serde::Serialize`
-    ///
     fn encode_to_vec(&'e self) -> CustomResult<Vec<u8>, errors::ParsingError>
     where
         Self: Serialize;
 }
 
-impl<'e, P, A> Encode<'e, P> for A
+impl<'e, A> Encode<'e> for A
 where
     Self: 'e + std::fmt::Debug,
 {
-    fn convert_and_encode(&'e self) -> CustomResult<String, errors::ParsingError>
+    fn convert_and_encode<P>(&'e self) -> CustomResult<String, errors::ParsingError>
     where
         P: TryFrom<&'e Self> + Serialize,
         Result<P, <P as TryFrom<&'e Self>>::Error>: ResultExt,
@@ -101,12 +84,11 @@ where
         serde_json::to_string(
             &P::try_from(self).change_context(errors::ParsingError::UnknownError)?,
         )
-        .into_report()
         .change_context(errors::ParsingError::EncodeError("string"))
         .attach_printable_lazy(|| format!("Unable to convert {self:?} to a request"))
     }
 
-    fn convert_and_url_encode(&'e self) -> CustomResult<String, errors::ParsingError>
+    fn convert_and_url_encode<P>(&'e self) -> CustomResult<String, errors::ParsingError>
     where
         P: TryFrom<&'e Self> + Serialize,
         Result<P, <P as TryFrom<&'e Self>>::Error>: ResultExt,
@@ -115,7 +97,6 @@ where
         serde_urlencoded::to_string(
             &P::try_from(self).change_context(errors::ParsingError::UnknownError)?,
         )
-        .into_report()
         .change_context(errors::ParsingError::EncodeError("url-encoded"))
         .attach_printable_lazy(|| format!("Unable to convert {self:?} to a request"))
     }
@@ -126,7 +107,6 @@ where
         Self: Serialize,
     {
         serde_urlencoded::to_string(self)
-            .into_report()
             .change_context(errors::ParsingError::EncodeError("url-encoded"))
             .attach_printable_lazy(|| format!("Unable to convert {self:?} to a request"))
     }
@@ -136,7 +116,6 @@ where
         Self: Serialize,
     {
         serde_json::to_string(self)
-            .into_report()
             .change_context(errors::ParsingError::EncodeError("json"))
             .attach_printable_lazy(|| format!("Unable to convert {self:?} to a request"))
     }
@@ -146,7 +125,6 @@ where
         Self: Serialize,
     {
         quick_xml::se::to_string(self)
-            .into_report()
             .change_context(errors::ParsingError::EncodeError("xml"))
             .attach_printable_lazy(|| format!("Unable to convert {self:?} to a request"))
     }
@@ -156,7 +134,6 @@ where
         Self: Serialize,
     {
         serde_json::to_value(self)
-            .into_report()
             .change_context(errors::ParsingError::EncodeError("json-value"))
             .attach_printable_lazy(|| format!("Unable to convert {self:?} to a value"))
     }
@@ -166,19 +143,14 @@ where
         Self: Serialize,
     {
         serde_json::to_vec(self)
-            .into_report()
             .change_context(errors::ParsingError::EncodeError("byte-vec"))
             .attach_printable_lazy(|| format!("Unable to convert {self:?} to a value"))
     }
 }
 
-///
 /// Extending functionalities of `bytes::Bytes`
-///
 pub trait BytesExt {
-    ///
     /// Convert `bytes::Bytes` into type `<T>` using `serde::Deserialize`
-    ///
     fn parse_struct<'de, T>(
         &'de self,
         type_name: &'static str,
@@ -198,7 +170,6 @@ impl BytesExt for bytes::Bytes {
         use bytes::Buf;
 
         serde_json::from_slice::<T>(self.chunk())
-            .into_report()
             .change_context(errors::ParsingError::StructParseFailure(type_name))
             .attach_printable_lazy(|| {
                 let variable_type = std::any::type_name::<T>();
@@ -207,13 +178,9 @@ impl BytesExt for bytes::Bytes {
     }
 }
 
-///
 /// Extending functionalities of `[u8]` for performing parsing
-///
 pub trait ByteSliceExt {
-    ///
     /// Convert `[u8]` into type `<T>` by using `serde::Deserialize`
-    ///
     fn parse_struct<'de, T>(
         &'de self,
         type_name: &'static str,
@@ -223,6 +190,7 @@ pub trait ByteSliceExt {
 }
 
 impl ByteSliceExt for [u8] {
+    #[track_caller]
     fn parse_struct<'de, T>(
         &'de self,
         type_name: &'static str,
@@ -231,19 +199,14 @@ impl ByteSliceExt for [u8] {
         T: Deserialize<'de>,
     {
         serde_json::from_slice(self)
-            .into_report()
             .change_context(errors::ParsingError::StructParseFailure(type_name))
             .attach_printable_lazy(|| format!("Unable to parse {type_name} from &[u8] {:?}", &self))
     }
 }
 
-///
 /// Extending functionalities of `serde_json::Value` for performing parsing
-///
 pub trait ValueExt {
-    ///
     /// Convert `serde_json::Value` into type `<T>` by using `serde::Deserialize`
-    ///
     fn parse_value<T>(self, type_name: &'static str) -> CustomResult<T, errors::ParsingError>
     where
         T: serde::de::DeserializeOwned;
@@ -259,7 +222,6 @@ impl ValueExt for serde_json::Value {
             &self
         );
         serde_json::from_value::<T>(self)
-            .into_report()
             .change_context(errors::ParsingError::StructParseFailure(type_name))
             .attach_printable_lazy(|| debug)
     }
@@ -286,22 +248,16 @@ impl<E: ValueExt + Clone> ValueExt for crypto::Encryptable<E> {
     }
 }
 
-///
 /// Extending functionalities of `String` for performing parsing
-///
 pub trait StringExt<T> {
-    ///
     /// Convert `String` into type `<T>` (which being an `enum`)
-    ///
     fn parse_enum(self, enum_name: &'static str) -> CustomResult<T, errors::ParsingError>
     where
         T: std::str::FromStr,
         // Requirement for converting the `Err` variant of `FromStr` to `Report<Err>`
         <T as std::str::FromStr>::Err: std::error::Error + Send + Sync + 'static;
 
-    ///
     /// Convert `serde_json::Value` into type `<T>` by using `serde::Deserialize`
-    ///
     fn parse_struct<'de>(
         &'de self,
         type_name: &'static str,
@@ -317,7 +273,6 @@ impl<T> StringExt<T> for String {
         <T as std::str::FromStr>::Err: std::error::Error + Send + Sync + 'static,
     {
         T::from_str(&self)
-            .into_report()
             .change_context(errors::ParsingError::EnumParseFailure(enum_name))
             .attach_printable_lazy(|| format!("Invalid enum variant {self:?} for enum {enum_name}"))
     }
@@ -330,7 +285,6 @@ impl<T> StringExt<T> for String {
         T: Deserialize<'de>,
     {
         serde_json::from_str::<T>(self)
-            .into_report()
             .change_context(errors::ParsingError::StructParseFailure(type_name))
             .attach_printable_lazy(|| {
                 format!("Unable to parse {type_name} from string {:?}", &self)
@@ -338,25 +292,20 @@ impl<T> StringExt<T> for String {
     }
 }
 
-///
 /// Extending functionalities of Wrapper types for idiomatic
-///
 #[cfg(feature = "async_ext")]
 #[cfg_attr(feature = "async_ext", async_trait::async_trait)]
 pub trait AsyncExt<A, B> {
     /// Output type of the map function
     type WrappedSelf<T>;
-    ///
+
     /// Extending map by allowing functions which are async
-    ///
     async fn async_map<F, Fut>(self, func: F) -> Self::WrappedSelf<B>
     where
         F: FnOnce(A) -> Fut + Send,
         Fut: futures::Future<Output = B> + Send;
 
-    ///
     /// Extending the `and_then` by allowing functions which are async
-    ///
     async fn async_and_then<F, Fut>(self, func: F) -> Self::WrappedSelf<B>
     where
         F: FnOnce(A) -> Fut + Send,
@@ -480,16 +429,14 @@ where
 
 /// Extension trait for deserializing XML strings using `quick-xml` crate
 pub trait XmlExt {
-    ///
     /// Deserialize an XML string into the specified type `<T>`.
-    ///
-    fn parse_xml<T>(self) -> Result<T, quick_xml::de::DeError>
+    fn parse_xml<T>(self) -> Result<T, de::DeError>
     where
         T: serde::de::DeserializeOwned;
 }
 
 impl XmlExt for &str {
-    fn parse_xml<T>(self) -> Result<T, quick_xml::de::DeError>
+    fn parse_xml<T>(self) -> Result<T, de::DeError>
     where
         T: serde::de::DeserializeOwned,
     {
@@ -542,7 +489,6 @@ where
             Err(errors::ValidationError::MissingRequiredField {
                 field_name: field_name.to_string(),
             })
-            .into_report()
             .attach_printable(format!("Missing required field {field_name} in {self:?}"))
         })
     }
@@ -558,7 +504,6 @@ where
             None => Err(errors::ValidationError::MissingRequiredField {
                 field_name: field_name.to_string(),
             })
-            .into_report()
             .attach_printable(format!("Missing required field {field_name} in {self:?}")),
         }
     }
@@ -575,7 +520,6 @@ where
             .change_context(errors::ParsingError::UnknownError)?;
 
         E::from_str(value.as_ref())
-            .into_report()
             .change_context(errors::ParsingError::UnknownError)
             .attach_printable_lazy(|| format!("Invalid {{ {enum_name}: {value:?} }} "))
     }

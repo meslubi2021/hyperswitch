@@ -2,7 +2,10 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
-use crate::enums::{Country, CountryAlpha2, CountryAlpha3, PaymentMethod, PaymentMethodType};
+use crate::enums::{
+    AttemptStatus, Country, CountryAlpha2, CountryAlpha3, IntentStatus, PaymentMethod,
+    PaymentMethodType,
+};
 
 impl Display for NumericCountryCodeParseError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -519,7 +522,7 @@ impl Country {
             CountryAlpha2::ZW => Self::Zimbabwe,
         }
     }
-    pub const fn to_alpha2(&self) -> CountryAlpha2 {
+    pub const fn to_alpha2(self) -> CountryAlpha2 {
         match self {
             Self::Afghanistan => CountryAlpha2::AF,
             Self::AlandIslands => CountryAlpha2::AX,
@@ -1025,7 +1028,7 @@ impl Country {
             CountryAlpha3::ZWE => Self::Zimbabwe,
         }
     }
-    pub const fn to_alpha3(&self) -> CountryAlpha3 {
+    pub const fn to_alpha3(self) -> CountryAlpha3 {
         match self {
             Self::Afghanistan => CountryAlpha3::AFG,
             Self::AlandIslands => CountryAlpha3::ALA,
@@ -1532,7 +1535,7 @@ impl Country {
             _ => Err(NumericCountryCodeParseError),
         }
     }
-    pub const fn to_numeric(&self) -> u32 {
+    pub const fn to_numeric(self) -> u32 {
         match self {
             Self::Afghanistan => 4,
             Self::AlandIslands => 248,
@@ -1807,6 +1810,7 @@ impl From<PaymentMethodType> for PaymentMethod {
             PaymentMethodType::Bizum => Self::BankRedirect,
             PaymentMethodType::Blik => Self::BankRedirect,
             PaymentMethodType::Alfamart => Self::Voucher,
+            PaymentMethodType::CardRedirect => Self::CardRedirect,
             PaymentMethodType::CimbVa => Self::BankTransfer,
             PaymentMethodType::ClassicReward => Self::Reward,
             PaymentMethodType::Credit => Self::Card,
@@ -1814,16 +1818,20 @@ impl From<PaymentMethodType> for PaymentMethod {
             PaymentMethodType::Dana => Self::Wallet,
             PaymentMethodType::DanamonVa => Self::BankTransfer,
             PaymentMethodType::Debit => Self::Card,
+            PaymentMethodType::Fps => Self::RealTimePayment,
+            PaymentMethodType::DuitNow => Self::RealTimePayment,
             PaymentMethodType::Eps => Self::BankRedirect,
             PaymentMethodType::Evoucher => Self::Reward,
             PaymentMethodType::Giropay => Self::BankRedirect,
             PaymentMethodType::GooglePay => Self::Wallet,
             PaymentMethodType::GoPay => Self::Wallet,
             PaymentMethodType::Gcash => Self::Wallet,
+            PaymentMethodType::Mifinity => Self::Wallet,
             PaymentMethodType::Ideal => Self::BankRedirect,
             PaymentMethodType::Klarna => Self::PayLater,
             PaymentMethodType::KakaoPay => Self::Wallet,
             PaymentMethodType::Knet => Self::CardRedirect,
+            PaymentMethodType::LocalBankRedirect => Self::BankRedirect,
             PaymentMethodType::MbWay => Self::Wallet,
             PaymentMethodType::MobilePay => Self::Wallet,
             PaymentMethodType::Momo => Self::Wallet,
@@ -1838,13 +1846,16 @@ impl From<PaymentMethodType> for PaymentMethod {
             PaymentMethodType::OnlineBankingThailand => Self::BankRedirect,
             PaymentMethodType::OnlineBankingPoland => Self::BankRedirect,
             PaymentMethodType::OnlineBankingSlovakia => Self::BankRedirect,
+            PaymentMethodType::Paze => Self::Wallet,
             PaymentMethodType::PermataBankTransfer => Self::BankTransfer,
             PaymentMethodType::Pix => Self::BankTransfer,
             PaymentMethodType::Pse => Self::BankTransfer,
+            PaymentMethodType::LocalBankTransfer => Self::BankTransfer,
             PaymentMethodType::PayBright => Self::PayLater,
             PaymentMethodType::Paypal => Self::Wallet,
             PaymentMethodType::PaySafeCard => Self::GiftCard,
             PaymentMethodType::Przelewy24 => Self::BankRedirect,
+            PaymentMethodType::PromptPay => Self::RealTimePayment,
             PaymentMethodType::SamsungPay => Self::Wallet,
             PaymentMethodType::Sepa => Self::BankDebit,
             PaymentMethodType::Sofort => Self::BankRedirect,
@@ -1852,7 +1863,10 @@ impl From<PaymentMethodType> for PaymentMethod {
             PaymentMethodType::Trustly => Self::BankRedirect,
             PaymentMethodType::Twint => Self::Wallet,
             PaymentMethodType::UpiCollect => Self::Upi,
+            PaymentMethodType::UpiIntent => Self::Upi,
             PaymentMethodType::Vipps => Self::Wallet,
+            PaymentMethodType::Venmo => Self::Wallet,
+            PaymentMethodType::VietQr => Self::RealTimePayment,
             PaymentMethodType::Walley => Self::PayLater,
             PaymentMethodType::WeChatPay => Self::Wallet,
             PaymentMethodType::TouchNGo => Self::Wallet,
@@ -1872,6 +1886,8 @@ impl From<PaymentMethodType> for PaymentMethod {
             PaymentMethodType::FamilyMart => Self::Voucher,
             PaymentMethodType::Seicomart => Self::Voucher,
             PaymentMethodType::PayEasy => Self::Voucher,
+            PaymentMethodType::OpenBankingPIS => Self::OpenBanking,
+            PaymentMethodType::DirectCarrierBilling => Self::MobilePayment,
         }
     }
 }
@@ -1889,6 +1905,8 @@ mod custom_serde {
 
         use super::*;
 
+        // `serde::Serialize` implementation needs the function to accept `&Country`
+        #[allow(clippy::trivially_copy_pass_by_ref)]
         pub fn serialize<S>(code: &Country, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: serde::Serializer,
@@ -1898,7 +1916,7 @@ mod custom_serde {
 
         struct FieldVisitor;
 
-        impl<'de> Visitor<'de> for FieldVisitor {
+        impl Visitor<'_> for FieldVisitor {
             type Value = CountryAlpha2;
 
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
@@ -1921,6 +1939,8 @@ mod custom_serde {
 
         use super::*;
 
+        // `serde::Serialize` implementation needs the function to accept `&Country`
+        #[allow(clippy::trivially_copy_pass_by_ref)]
         pub fn serialize<S>(code: &Country, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: serde::Serializer,
@@ -1930,7 +1950,7 @@ mod custom_serde {
 
         struct FieldVisitor;
 
-        impl<'de> Visitor<'de> for FieldVisitor {
+        impl Visitor<'_> for FieldVisitor {
             type Value = CountryAlpha3;
 
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
@@ -1953,6 +1973,8 @@ mod custom_serde {
 
         use super::*;
 
+        // `serde::Serialize` implementation needs the function to accept `&Country`
+        #[allow(clippy::trivially_copy_pass_by_ref)]
         pub fn serialize<S>(code: &Country, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: serde::Serializer,
@@ -1962,7 +1984,7 @@ mod custom_serde {
 
         struct FieldVisitor;
 
-        impl<'de> Visitor<'de> for FieldVisitor {
+        impl Visitor<'_> for FieldVisitor {
             type Value = u32;
 
             fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
@@ -1976,6 +1998,114 @@ mod custom_serde {
         {
             u32::deserialize(deserializer)
                 .and_then(|value| Country::from_numeric(value).map_err(serde::de::Error::custom))
+        }
+    }
+}
+
+impl From<Option<bool>> for super::External3dsAuthenticationRequest {
+    fn from(value: Option<bool>) -> Self {
+        match value {
+            Some(true) => Self::Enable,
+            _ => Self::Skip,
+        }
+    }
+}
+
+/// Get the boolean value of the `External3dsAuthenticationRequest`.
+impl super::External3dsAuthenticationRequest {
+    pub fn as_bool(&self) -> bool {
+        match self {
+            Self::Enable => true,
+            Self::Skip => false,
+        }
+    }
+}
+
+impl super::EnablePaymentLinkRequest {
+    pub fn as_bool(&self) -> bool {
+        match self {
+            Self::Enable => true,
+            Self::Skip => false,
+        }
+    }
+}
+
+impl From<Option<bool>> for super::EnablePaymentLinkRequest {
+    fn from(value: Option<bool>) -> Self {
+        match value {
+            Some(true) => Self::Enable,
+            _ => Self::Skip,
+        }
+    }
+}
+
+impl From<Option<bool>> for super::MitExemptionRequest {
+    fn from(value: Option<bool>) -> Self {
+        match value {
+            Some(true) => Self::Apply,
+            _ => Self::Skip,
+        }
+    }
+}
+
+impl super::MitExemptionRequest {
+    pub fn as_bool(&self) -> bool {
+        match self {
+            Self::Apply => true,
+            Self::Skip => false,
+        }
+    }
+}
+
+impl From<Option<bool>> for super::PresenceOfCustomerDuringPayment {
+    fn from(value: Option<bool>) -> Self {
+        match value {
+            Some(false) => Self::Absent,
+            _ => Self::Present,
+        }
+    }
+}
+
+impl super::PresenceOfCustomerDuringPayment {
+    pub fn as_bool(&self) -> bool {
+        match self {
+            Self::Present => true,
+            Self::Absent => false,
+        }
+    }
+}
+
+impl From<AttemptStatus> for IntentStatus {
+    fn from(s: AttemptStatus) -> Self {
+        match s {
+            AttemptStatus::Charged | AttemptStatus::AutoRefunded => Self::Succeeded,
+
+            AttemptStatus::ConfirmationAwaited => Self::RequiresConfirmation,
+            AttemptStatus::PaymentMethodAwaited => Self::RequiresPaymentMethod,
+
+            AttemptStatus::Authorized => Self::RequiresCapture,
+            AttemptStatus::AuthenticationPending | AttemptStatus::DeviceDataCollectionPending => {
+                Self::RequiresCustomerAction
+            }
+            AttemptStatus::Unresolved => Self::RequiresMerchantAction,
+
+            AttemptStatus::PartialCharged => Self::PartiallyCaptured,
+            AttemptStatus::PartialChargedAndChargeable => Self::PartiallyCapturedAndCapturable,
+            AttemptStatus::Started
+            | AttemptStatus::AuthenticationSuccessful
+            | AttemptStatus::Authorizing
+            | AttemptStatus::CodInitiated
+            | AttemptStatus::VoidInitiated
+            | AttemptStatus::CaptureInitiated
+            | AttemptStatus::Pending => Self::Processing,
+
+            AttemptStatus::AuthenticationFailed
+            | AttemptStatus::AuthorizationFailed
+            | AttemptStatus::VoidFailed
+            | AttemptStatus::RouterDeclined
+            | AttemptStatus::CaptureFailed
+            | AttemptStatus::Failure => Self::Failed,
+            AttemptStatus::Voided => Self::Cancelled,
         }
     }
 }

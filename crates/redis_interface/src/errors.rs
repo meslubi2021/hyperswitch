@@ -1,6 +1,4 @@
-//!
 //! Errors specific to this custom redis interface
-//!
 
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum RedisError {
@@ -8,6 +6,8 @@ pub enum RedisError {
     InvalidConfiguration(String),
     #[error("Failed to set key value in Redis")]
     SetFailed,
+    #[error("Failed to set key value in Redis. Duplicate value")]
+    SetNxFailed,
     #[error("Failed to set key value with expiry in Redis")]
     SetExFailed,
     #[error("Failed to set expiry for key value in Redis")]
@@ -48,6 +48,8 @@ pub enum RedisError {
     SetHashFailed,
     #[error("Failed to set hash field in Redis")]
     SetHashFieldFailed,
+    #[error("Failed to add members to set in Redis")]
+    SetAddMembersFailed,
     #[error("Failed to get hash field in Redis")]
     GetHashFieldFailed,
     #[error("The requested value was not found in Redis")]
@@ -64,4 +66,14 @@ pub enum RedisError {
     OnMessageError,
     #[error("Got an unknown result from redis")]
     UnknownResult,
+    #[error("Failed to append elements to list in Redis")]
+    AppendElementsToListFailed,
+    #[error("Failed to get list elements in Redis")]
+    GetListElementsFailed,
+    #[error("Failed to get length of list")]
+    GetListLengthFailed,
+    #[error("Failed to pop list elements in Redis")]
+    PopListElementsFailed,
+    #[error("Failed to increment hash field in Redis")]
+    IncrementHashFieldFailed,
 }

@@ -1,8 +1,7 @@
-//!
 //! Serde-related.
-//!
 
-pub use serde::{de, ser, Deserialize, Serialize, Serializer};
+pub use erased_serde::Serialize as ErasedSerialize;
+pub use serde::{de, Deserialize, Serialize, Serializer};
 use serde_json::{value::Serializer as JsonValueSerializer, Value};
 
 use crate::{Secret, Strategy, StrongSecret, ZeroizableSecret};
@@ -16,7 +15,6 @@ use crate::{Secret, Strategy, StrongSecret, ZeroizableSecret};
 ///
 /// This is done deliberately to prevent accidental exfiltration of secrets
 /// via `serde` serialization.
-///
 
 #[cfg_attr(docsrs, cfg(feature = "serde"))]
 pub trait SerializableSecret: Serialize {}
@@ -26,6 +24,13 @@ pub trait SerializableSecret: Serialize {}
 impl SerializableSecret for Value {}
 impl SerializableSecret for u8 {}
 impl SerializableSecret for u16 {}
+impl SerializableSecret for i8 {}
+impl SerializableSecret for i32 {}
+impl SerializableSecret for i64 {}
+impl SerializableSecret for url::Url {}
+
+#[cfg(feature = "time")]
+impl SerializableSecret for time::Date {}
 
 impl<'de, T, I> Deserialize<'de> for Secret<T, I>
 where
@@ -79,7 +84,6 @@ where
     }
 }
 
-///
 /// Masked serialization.
 ///
 /// the default behaviour for secrets is to serialize in exposed format since the common use cases
@@ -89,6 +93,42 @@ pub fn masked_serialize<T: Serialize>(value: &T) -> Result<Value, serde_json::Er
     value.serialize(PIISerializer {
         inner: JsonValueSerializer,
     })
+}
+
+/// Masked serialization.
+///
+/// Trait object for supporting serialization to Value while accounting for masking
+/// The usual Serde Serialize trait cannot be used as trait objects
+/// like &dyn Serialize or boxed trait objects like Box<dyn Serialize> because of Rust's "object safety" rules.
+/// In particular, the trait contains generic methods which cannot be made into a trait object.
+/// In this case we remove the generic for assuming the serialization to be of 2 types only raw json or masked json
+pub trait ErasedMaskSerialize: ErasedSerialize {
+    /// Masked serialization.
+    fn masked_serialize(&self) -> Result<Value, serde_json::Error>;
+}
+
+impl<T: Serialize + ErasedSerialize> ErasedMaskSerialize for T {
+    fn masked_serialize(&self) -> Result<Value, serde_json::Error> {
+        masked_serialize(self)
+    }
+}
+
+impl Serialize for dyn ErasedMaskSerialize + '_ {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        erased_serde::serialize(self, serializer)
+    }
+}
+
+impl Serialize for dyn ErasedMaskSerialize + '_ + Send {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        erased_serde::serialize(self, serializer)
+    }
 }
 
 use pii_serializer::PIISerializer;

@@ -1,51 +1,70 @@
-use common_utils::ext_traits::ValueExt;
-use diesel_models::enums::{self as storage_enums};
+use common_utils::{errors::ValidationError, ext_traits::ValueExt, types::theme::ThemeLineage};
+use diesel_models::{
+    enums as storage_enums, process_tracker::business_status, ApiKeyExpiryTrackingData,
+};
+use router_env::logger;
+use scheduler::{workflows::ProcessTrackerWorkflow, SchedulerSessionState};
 
-use super::{ApiKeyExpiryWorkflow, ProcessTrackerWorkflow};
 use crate::{
-    errors,
+    consts, errors,
     logger::error,
-    routes::AppState,
-    types::{
-        api,
-        storage::{self, ProcessTrackerExt},
-    },
-    utils::OptionExt,
+    routes::{metrics, SessionState},
+    services::email::types::{self as email_types, ApiKeyExpiryReminder},
+    types::{api, domain::UserEmail, storage},
+    utils::{user::theme as theme_utils, OptionExt},
 };
 
+pub struct ApiKeyExpiryWorkflow;
+
 #[async_trait::async_trait]
-impl ProcessTrackerWorkflow for ApiKeyExpiryWorkflow {
+impl ProcessTrackerWorkflow<SessionState> for ApiKeyExpiryWorkflow {
     async fn execute_workflow<'a>(
         &'a self,
-        state: &'a AppState,
+        state: &'a SessionState,
         process: storage::ProcessTracker,
     ) -> Result<(), errors::ProcessTrackerError> {
         let db = &*state.store;
-        let tracking_data: storage::ApiKeyExpiryWorkflow = process
+        let tracking_data: ApiKeyExpiryTrackingData = process
             .tracking_data
             .clone()
-            .parse_value("ApiKeyExpiryWorkflow")?;
-
+            .parse_value("ApiKeyExpiryTrackingData")?;
+        let key_manager_satte = &state.into();
         let key_store = state
             .store
             .get_merchant_key_store_by_merchant_id(
-                tracking_data.merchant_id.as_str(),
+                key_manager_satte,
+                &tracking_data.merchant_id,
                 &state.store.get_master_key().to_vec().into(),
             )
             .await?;
 
         let merchant_account = db
-            .find_merchant_account_by_merchant_id(tracking_data.merchant_id.as_str(), &key_store)
+            .find_merchant_account_by_merchant_id(
+                key_manager_satte,
+                &tracking_data.merchant_id,
+                &key_store,
+            )
             .await?;
 
         let email_id = merchant_account
             .merchant_details
+            .clone()
             .parse_value::<api::MerchantDetails>("MerchantDetails")?
-            .primary_email;
+            .primary_email
+            .ok_or(errors::ProcessTrackerError::EValidationError(
+                ValidationError::MissingRequiredField {
+                    field_name: "email".to_string(),
+                }
+                .into(),
+            ))?;
 
         let task_id = process.id.clone();
 
         let retry_count = process.retry_count;
+
+        let api_key_name = tracking_data.api_key_name.clone();
+
+        let prefix = tracking_data.prefix.clone();
 
         let expires_in = tracking_data
             .expiry_reminder_days
@@ -53,36 +72,60 @@ impl ProcessTrackerWorkflow for ApiKeyExpiryWorkflow {
                 usize::try_from(retry_count)
                     .map_err(|_| errors::ProcessTrackerError::TypeConversionError)?,
             )
-            .ok_or(errors::ProcessTrackerError::EApiErrorResponse(
-                errors::ApiErrorResponse::InvalidDataValue {
-                    field_name: "index",
-                }
-                .into(),
-            ))?;
+            .ok_or(errors::ProcessTrackerError::EApiErrorResponse)?;
+
+        let theme = theme_utils::get_most_specific_theme_using_lineage(
+            state,
+            ThemeLineage::Merchant {
+                tenant_id: state.tenant.tenant_id.clone(),
+                org_id: merchant_account.get_org_id().clone(),
+                merchant_id: merchant_account.get_id().clone(),
+            },
+        )
+        .await
+        .map_err(|err| {
+            logger::error!(?err, "Failed to get theme");
+            errors::ProcessTrackerError::EApiErrorResponse
+        })?;
+
+        let email_contents = ApiKeyExpiryReminder {
+            recipient_email: UserEmail::from_pii_email(email_id).map_err(|error| {
+                logger::error!(
+                    ?error,
+                    "Failed to convert recipient's email to UserEmail from pii::Email"
+                );
+                errors::ProcessTrackerError::EApiErrorResponse
+            })?,
+            subject: consts::EMAIL_SUBJECT_API_KEY_EXPIRY,
+            expires_in: *expires_in,
+            api_key_name,
+            prefix,
+            theme_id: theme.as_ref().map(|theme| theme.theme_id.clone()),
+            theme_config: theme
+                .map(|theme| theme.email_config())
+                .unwrap_or(state.conf.theme.email_config.clone()),
+        };
 
         state
             .email_client
             .clone()
-            .send_email(
-                email_id.ok_or_else(|| errors::ProcessTrackerError::MissingRequiredField)?,
-                "API Key Expiry Notice".to_string(),
-                format!("Dear Merchant,\n
-It has come to our attention that your API key will expire in {expires_in} days. To ensure uninterrupted access to our platform and continued smooth operation of your services, we kindly request that you take the necessary actions as soon as possible.\n\n
-Thanks,\n
-Team Hyperswitch"),
+            .compose_and_send_email(
+                email_types::get_base_url(state),
+                Box::new(email_contents),
+                state.conf.proxy.https_url.as_ref(),
             )
             .await
-            .map_err(|_| errors::ProcessTrackerError::FlowExecutionError {
-                flow: "ApiKeyExpiryWorkflow",
-            })?;
+            .map_err(errors::ProcessTrackerError::EEmailError)?;
 
         // If all the mails have been sent, then retry_count would be equal to length of the expiry_reminder_days vector
         if retry_count
             == i32::try_from(tracking_data.expiry_reminder_days.len() - 1)
                 .map_err(|_| errors::ProcessTrackerError::TypeConversionError)?
         {
-            process
-                .finish_with_status(db, format!("COMPLETED_BY_PT_{task_id}"))
+            state
+                .get_db()
+                .as_scheduler()
+                .finish_process_with_business_status(process, business_status::COMPLETED_BY_PT)
                 .await?
         }
         // If tasks are remaining that has to be scheduled
@@ -93,12 +136,7 @@ Team Hyperswitch"),
                     usize::try_from(retry_count + 1)
                         .map_err(|_| errors::ProcessTrackerError::TypeConversionError)?,
                 )
-                .ok_or(errors::ProcessTrackerError::EApiErrorResponse(
-                    errors::ApiErrorResponse::InvalidDataValue {
-                        field_name: "index",
-                    }
-                    .into(),
-                ))?;
+                .ok_or(errors::ProcessTrackerError::EApiErrorResponse)?;
 
             let updated_schedule_time = tracking_data.api_key_expiry.map(|api_key_expiry| {
                 api_key_expiry.saturating_sub(time::Duration::days(i64::from(*expiry_reminder_day)))
@@ -115,6 +153,9 @@ Team Hyperswitch"),
             let task_ids = vec![task_id];
             db.process_tracker_update_process_status_by_ids(task_ids, updated_process_tracker_data)
                 .await?;
+            // Remaining tasks are re-scheduled, so will be resetting the added count
+            metrics::TASKS_RESET_COUNT
+                .add(1, router_env::metric_attributes!(("flow", "ApiKeyExpiry")));
         }
 
         Ok(())
@@ -122,7 +163,7 @@ Team Hyperswitch"),
 
     async fn error_handler<'a>(
         &'a self,
-        _state: &'a AppState,
+        _state: &'a SessionState,
         process: storage::ProcessTracker,
         _error: errors::ProcessTrackerError,
     ) -> errors::CustomResult<(), errors::ProcessTrackerError> {

@@ -16,20 +16,13 @@ pub struct OpennodeRouterData<T> {
     pub router_data: T,
 }
 
-impl<T>
-    TryFrom<(
-        &types::api::CurrencyUnit,
-        types::storage::enums::Currency,
-        i64,
-        T,
-    )> for OpennodeRouterData<T>
-{
+impl<T> TryFrom<(&api::CurrencyUnit, enums::Currency, i64, T)> for OpennodeRouterData<T> {
     type Error = error_stack::Report<errors::ConnectorError>;
 
     fn try_from(
         (_currency_unit, _currency, amount, router_data): (
-            &types::api::CurrencyUnit,
-            types::storage::enums::Currency,
+            &api::CurrencyUnit,
+            enums::Currency,
             i64,
             T,
         ),
@@ -145,11 +138,13 @@ impl<F, T>
         let response_data = if attempt_status != OpennodePaymentStatus::Underpaid {
             Ok(types::PaymentsResponseData::TransactionResponse {
                 resource_id: connector_id,
-                redirection_data: Some(redirection_data),
-                mandate_reference: None,
+                redirection_data: Box::new(Some(redirection_data)),
+                mandate_reference: Box::new(None),
                 connector_metadata: None,
                 network_txn_id: None,
                 connector_response_reference_id: item.response.data.order_id,
+                incremental_authorization_allowed: None,
+                charge_id: None,
             })
         } else {
             Ok(types::PaymentsResponseData::TransactionUnresolvedResponse {
@@ -251,7 +246,7 @@ impl TryFrom<types::RefundsResponseRouterData<api::RSync, RefundResponse>>
 }
 
 //TODO: Fill the struct with respective fields
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct OpennodeErrorResponse {
     pub message: String,
 }
@@ -263,7 +258,7 @@ fn get_crypto_specific_payment_data(
     let currency = item.router_data.request.currency.to_string();
     let description = item.router_data.get_description()?;
     let auto_settle = true;
-    let success_url = item.router_data.get_return_url()?;
+    let success_url = item.router_data.request.get_router_return_url()?;
     let callback_url = item.router_data.request.get_webhook_url()?;
     let order_id = item.router_data.connector_request_reference_id.clone();
 
