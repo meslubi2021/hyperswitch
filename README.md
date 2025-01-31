@@ -185,10 +185,3 @@ Check the [CHANGELOG.md](./CHANGELOG.md) file for details.
   <h2 id="copyright-and-license">Copyright and License</h2>
 </a>
 
-This product is licensed under the [Apache 2.0 License](LICENSE).
-
-
-<a href="team-behind-hyperswitch">
-  <h2 id="team-behind-hyperswitch">Team behind Hyperswitch</h2>
-</a>
-
